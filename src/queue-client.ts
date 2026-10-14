@@ -19,7 +19,7 @@ export class QueueClient {
     this.readyTimer = window.setTimeout(() => this.rejectReady(new Error('Google bridge did not connect. Check deployment access and allowed origin.')), 30000);
     this.listener = event => {
       const data = event.data;
-      const googleOrigin = /^https:\/\/([\w-]+\.)?script\.googleusercontent\.com$/.test(event.origin);
+      const googleOrigin = /^https:\/\/(?:[a-z0-9-]+[.-])?script\.googleusercontent\.com$/.test(event.origin);
       if (!googleOrigin || !data || data.channel !== this.channel || !event.source) return;
       if (data.type === 'queue-ready' && !this.peer) {
         this.peer = event.source as Window; this.origin = event.origin; clearTimeout(this.readyTimer); resolveReady(); return;

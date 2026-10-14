@@ -39,3 +39,13 @@ test('attempt limits, duplicate IDs and formula-like output are handled', () => 
   assert.equal(q.data[1][6], '\'=IMPORTXML("example")');
   q.data.push(q.data[1].slice()); assert.throws(() => q.request('claim'), /Duplicate Job IDs/);
 });
+
+test('Google bridge accepts its observed sandbox hostname and rejects other domains', () => {
+  const source = readFileSync(new URL('../src/queue-client.ts', import.meta.url), 'utf8');
+  const literal = source.match(/const googleOrigin = (\/.*\/[a-z]*)\.test/)[1];
+  const origin = vm.runInNewContext(literal);
+  assert.equal(origin.test('https://n-nsfbb5bok43jmyrgrw4caht5s7dfciocf6kt6zq-0lu-script.googleusercontent.com'), true);
+  assert.equal(origin.test('https://script.googleusercontent.com'), true);
+  assert.equal(origin.test('https://script.googleusercontent.com.example.org'), false);
+  assert.equal(origin.test('https://example.googleusercontent.com'), false);
+});

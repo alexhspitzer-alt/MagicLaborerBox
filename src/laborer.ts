@@ -16,7 +16,7 @@ export function installLaborer(host: Host) {
   };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS) || '{}');
-    element<HTMLInputElement>('queue-url').value = saved.endpoint || '';
+    element<HTMLInputElement>('queue-url').value = saved.endpoint || 'https://script.google.com/macros/s/AKfycbx93cQePRgC3-isSxCseAazz0Q2shopdXaEzGQs5uFyvsLaPGxPrtSzHRr0L42uVKOf/exec';
     element<HTMLInputElement>('queue-worker').value = saved.worker || `box_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`;
     if (localStorage.getItem(OUTBOX)) status('A saved result is waiting. Connect to its queue, then start to retry the upload.');
   } catch { status('Saved queue settings could not be read.'); }
