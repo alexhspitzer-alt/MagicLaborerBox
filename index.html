@@ -33,7 +33,7 @@
       <h2>Google job queue</h2>
       <p class="hint">Connect, load a text model above, then start. Keep this tab open and visible. Jobs and results sync to your Sheet; inference runs here.</p>
       <label for="queue-url">Apps Script web app URL<input id="queue-url" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></label>
-      <div class="model-picker"><label for="queue-key">Worker key<input id="queue-key" type="password" autocomplete="off" placeholder="From the Sheet’s Laborer box menu"></label><label for="queue-worker">Worker ID<input id="queue-worker" maxlength="100" autocomplete="off"></label></div>
+      <div class="model-picker"><label for="queue-key">Worker key<input id="queue-key" type="password" autocomplete="off" placeholder="From the bridge’s private project settings"></label><label for="queue-worker">Worker ID<input id="queue-worker" maxlength="100" autocomplete="off"></label></div>
       <p class="hint">The worker key stays in memory and must be entered after a reload. Use a different ID on each device.</p>
       <div class="queue-actions"><button id="queue-connect">Connect</button><button id="queue-start" disabled>Start worker</button><button id="queue-pause" class="secondary" disabled>Pause after job</button><a id="queue-sheet" target="_blank" rel="noopener noreferrer" hidden>Open queue sheet ↗</a></div>
       <p id="queue-status" role="status">Connect your Google queue to begin.</p>

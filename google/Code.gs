@@ -2,30 +2,6 @@ const HEADERS = ['Job ID', 'Status', 'Instructions', 'Input', 'Output format', '
 const LEASE_MS = 15 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 
-// Run once from the editor while signed in as the spreadsheet owner.
-function setupQueue_() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet();
-  if (!sheet) throw new Error('Use a script bound to the queue spreadsheet.');
-  const props = PropertiesService.getScriptProperties();
-  props.setProperty('SPREADSHEET_ID', sheet.getId());
-  props.setProperty('ALLOWED_ORIGIN', 'https://alexhspitzer-alt.github.io');
-  if (!props.getProperty('WORKER_TOKEN')) props.setProperty('WORKER_TOKEN', Utilities.getUuid() + Utilities.getUuid());
-  let jobs = sheet.getSheetByName('Jobs');
-  if (!jobs) jobs = sheet.insertSheet('Jobs');
-  if (!jobs.getLastRow()) jobs.appendRow(HEADERS);
-  validateHeaders_(jobs);
-  jobs.setFrozenRows(1);
-  jobs.getRange(1, 1, 1, HEADERS.length).setFontWeight('bold');
-}
-function onOpen() {
-  SpreadsheetApp.getUi().createMenu('Laborer box').addItem('Show worker connection', 'showConnection_').addToUi();
-}
-function showConnection_() {
-  const props = PropertiesService.getScriptProperties();
-  const token = props.getProperty('WORKER_TOKEN');
-  if (!token) throw new Error('Run setupQueue first.');
-  SpreadsheetApp.getUi().alert('Worker connection', 'Web app URL: ' + (ScriptApp.getService().getUrl() || 'Deploy the web app first.') + '\n\nWorker key: ' + token, SpreadsheetApp.getUi().ButtonSet.OK);
-}
 function doGet(e) {
   const origin = PropertiesService.getScriptProperties().getProperty('ALLOWED_ORIGIN');
   if (!origin || e.parameter.origin !== origin || !/^[a-f0-9-]{36}$/.test(e.parameter.channel || '')) {
