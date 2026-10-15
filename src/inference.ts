@@ -41,11 +41,11 @@ export class Inference {
     }));
   }
 
-  async generate(messages: Message[], onText: (text: string) => void, onUsage: (usage: CompletionUsage) => void, options: { system?: string; maxTokens?: number; temperature?: number } = {}): Promise<string | null> {
+  async generate(messages: Message[], onText: (text: string) => void, onUsage: (usage: CompletionUsage) => void, options: { system?: string | null; maxTokens?: number; temperature?: number } = {}): Promise<string | null> {
     if (!this.engine) throw new Error('Load the model before sending a message.');
     return this.withWorkerFailure((async () => {
       const stream = await this.engine!.chat.completions.create({
-        messages: [{ role: 'system', content: options.system ?? 'You are a helpful assistant. Answer clearly and honestly.' }, ...messages],
+        messages: options.system === null ? messages : [{ role: 'system', content: options.system ?? 'You are a helpful assistant. Answer clearly and honestly.' }, ...messages],
         stream: true, stream_options: { include_usage: true },
         max_tokens: Math.min(this.maxOutputTokens, options.maxTokens ?? this.maxOutputTokens), temperature: options.temperature ?? 0.7,
       });

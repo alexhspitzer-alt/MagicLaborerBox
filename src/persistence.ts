@@ -49,7 +49,12 @@ export async function cacheApp(): Promise<void> {
   // The development server is intentionally not cached.
   if (import.meta.env.DEV) return;
   if (!('serviceWorker' in navigator)) throw new Error('Service workers are unavailable. Offline page reloads cannot be enabled in this browser.');
-  const registration = await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}service-worker.js`);
+  const registration = await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}service-worker.js`, { updateViaCache: 'none' });
+  // Check for app updates even when an offline version was already installed.
+  if (navigator.onLine) {
+    try { await registration.update(); }
+    catch (error) { if (!registration.active) throw error; }
+  }
   // Await this registration, not an unrelated worker on another app's scope.
   if (registration.active && navigator.serviceWorker.controller && !registration.installing && !registration.waiting) return;
   const worker = registration.installing || registration.waiting;

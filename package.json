@@ -1,6 +1,6 @@
 {
   "name": "magiclaborerbox",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A local WebGPU worker for a shared Google Sheets job queue",
   "scripts": {
     "dev": "vite --host 0.0.0.0",

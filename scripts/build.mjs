@@ -34,9 +34,12 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.origin !== self.location.origin || !url.href.startsWith(self.registration.scope)) return;
   event.respondWith(caches.open(CACHE).then(async cache => {
+    if (event.request.mode === 'navigate') {
+      try { return await fetch(event.request); }
+      catch { return await cache.match(new URL('index.html', self.registration.scope)); }
+    }
     const cached = await cache.match(event.request);
     if (cached) return cached;
-    if (event.request.mode === 'navigate') return await cache.match(new URL('index.html', self.registration.scope)) || fetch(event.request);
     return fetch(event.request);
   }));
 });

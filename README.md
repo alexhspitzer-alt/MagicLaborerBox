@@ -42,7 +42,7 @@ Keep the `Jobs` tab and these headers in their exact order:
 | O | Error | Generation/format/context failure |
 | P | Review | Supervisor notes |
 
-To add work, append rows with A–F filled and B = `Ready`. Model input includes only the current row's task/data/format; it never includes chat history or other jobs. Keep batches small. A conservative UTF-8 byte check protects context headroom; non-English data may require smaller chunks. Split a too-large job across rows.
+To add work, append rows with A–F filled and B = `Ready`. Worker prompts are exactly the instruction, a blank line, and the input. There is no system message or added section heading; the format column controls validation only. Model input includes only the current row's instruction and data; it never includes chat history or other jobs. Keep batches small. A conservative UTF-8 byte check protects context headroom; non-English data may require smaller chunks. Split a too-large job across rows.
 
 A completed model response is `Done` only if nonempty and normally terminated; JSON jobs must also parse. This is a format check, not a correctness judgment. The cloud supervisor reviews outputs and may mark them `Accepted`, put notes in P, or set B back to `Ready` after revising instructions. Reset K deliberately if retrying past the three-attempt limit. Do not edit, sort, or reset active `Working` rows; pause workers first. Workers coordinate with each other using a script lock, but manual and connector edits do not use that lock.
 
@@ -71,3 +71,5 @@ Essential checks cover authentication, exclusive claims, lease recovery, stale-w
 ## Queue connection
 
 Connect your private queue through the app’s worker panel. No private spreadsheet IDs or worker keys are published in this repository.
+
+Version 0.2 simplifies worker prompts and checks for app updates while preserving offline fallback and existing model caches.
