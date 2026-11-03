@@ -209,7 +209,11 @@ installLaborer({
     const tokens = Math.floor(job.maxTokens);
     if (!Number.isFinite(tokens) || tokens < 1 || tokens > 2048) throw new Error('Max output tokens must be between 1 and 2048.');
     const limit = getModel(selected).contextTokens ?? CONTEXT_SIZE;
-    const input = [job.instructions.trim(), job.input.trim()].filter(Boolean).join('\n\n');
+    const comicJob = job.id.startsWith('comic-');
+    const boosted = comicJob && job.instructions.startsWith('[temperature=1.6]');
+    const instructions = boosted ? job.instructions.slice('[temperature=1.6]'.length).trim() : job.instructions.trim();
+    const jobInput = comicJob ? job.input.trim().slice(0, 140) : job.input.trim();
+    const input = [instructions, jobInput].filter(Boolean).join('\n\n');
     // Conservative byte bound; the runtime tokenizer remains authoritative.
     if (new TextEncoder().encode(input).length + tokens + 128 > limit) throw new Error('Job is too large for this model. Split the input into smaller rows.');
     const start = performance.now();
@@ -217,7 +221,7 @@ installLaborer({
     try {
       const finishReason = await inference.generate([{ role: 'user', content: input }], onText,
         usage => { element('speed').textContent = `${usage.extra.decode_tokens_per_s.toFixed(2)} tokens/s · ${usage.completion_tokens} tokens`; },
-        { system: null, maxTokens: tokens, temperature: job.id.startsWith('comic-') ? 0.8 : 0.1 });
+        { system: null, maxTokens: tokens, temperature: comicJob ? (boosted ? 1.6 : 0.8) : 0.1 });
       return { finishReason, model: selected };
     } finally { clearInterval(timer); ui.elapsed((performance.now() - start) / 1000); }
   },
