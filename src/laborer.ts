@@ -43,7 +43,20 @@ export function installLaborer(host: Host) {
     const saved = localStorage.getItem(OUTBOX); if (!saved) return;
     const result: Result = JSON.parse(saved);
     if (result.endpoint !== endpoint || result.worker !== worker) throw new Error('Saved result belongs to another queue or worker ID. Restore its connection before starting.');
-    const response = await client!.request('complete', result);
+    let response: Awaited<ReturnType<QueueClient['request']>> | undefined;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      try {
+        response = await client!.request('complete', result);
+        break;
+      } catch (error) {
+        if (!/timed out|did not connect|disconnected|network|failed to fetch/i.test(String(error)) || attempt === 7) throw error;
+        status('Google connection interrupted. Saved result retained; reconnecting to retry upload…');
+        await delay(Math.min(30000, 2000 * 2 ** attempt));
+        client?.close();
+        client = new QueueClient(endpoint, element<HTMLInputElement>('queue-key').value.trim(), worker);
+      }
+    }
+    if (!response) throw new Error('Upload retry failed.');
     if (response.stale) throw new Error('This result’s lease was reassigned. Download the saved result for review; it will not overwrite another worker.');
     if (!response.ok) throw new Error('Google did not acknowledge the result.');
     localStorage.removeItem(OUTBOX);
