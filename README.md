@@ -48,7 +48,7 @@ A completed model response is `Done` only if nonempty and normally terminated; J
 
 ## Recovery
 
-Claims expire after 15 minutes without a heartbeat. Another worker can then reclaim the job. The old claim cannot overwrite the new one. Completed answers are saved to browser storage before upload, and retried before claiming another job. Upload acknowledgement is idempotent, including when Google's first response was lost.
+Claims expire after 24 hours without a heartbeat. Heartbeats renew the lease for another 24 hours. After updating `google/Code.gs`, publish a new version of the existing Apps Script web app deployment for this duration to take effect. Another worker can then reclaim the job. The old claim cannot overwrite the new one. Completed answers are saved to browser storage before upload, and retried before claiming another job. Upload acknowledgement is idempotent, including when Google's first response was lost.
 
 If a tab closes during generation, incomplete output is not checkpointed: the expired job restarts. If it closes after the answer was saved, reconnect to the same endpoint/worker ID and start to retry submission. A stale saved answer is retained for downloading and supervisor review. Use **Download pending result**, then **Remove pending result** to clear it when appropriate. Storage-full errors pause the worker; the visible output can be copied. Clearing browser data removes saved results and cached models.
 
