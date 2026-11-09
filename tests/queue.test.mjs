@@ -49,3 +49,17 @@ test('Google bridge accepts its observed sandbox hostname and rejects other doma
   assert.equal(origin.test('https://script.googleusercontent.com.example.org'), false);
   assert.equal(origin.test('https://example.googleusercontent.com'), false);
 });
+
+test('claims and heartbeats grant a full 24-hour lease', () => {
+  const q = queue(), day = 24 * 60 * 60 * 1000;
+  const before = Date.now(); const job = q.request('claim').job;
+  assert.ok(Date.parse(job.leaseUntil) >= before + day);
+  assert.ok(Date.parse(job.leaseUntil) <= Date.now() + day);
+  q.data[1][8] = new Date(Date.now() + 1000).toISOString();
+  const renewedAt = Date.now();
+  q.request('heartbeat', { jobId: job.id, lease: job.lease });
+  assert.ok(Date.parse(q.data[1][8]) >= renewedAt + day);
+  assert.ok(Date.parse(q.data[1][8]) <= Date.now() + day);
+  q.data[1][8] = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  assert.equal(q.request('claim', { worker: 'box_2' }).job, null);
+});
