@@ -41,6 +41,7 @@ Keep the `Jobs` tab and these headers in their exact order:
 | N | Updated | ISO timestamp |
 | O | Error | Generation/format/context failure |
 | P | Review | Supervisor notes |
+| S | Lease hours (optional) | Positive hours for this job; blank defaults to 24. Fractions allowed: `0.25` = 15 minutes. |
 
 To add work, append rows with A–F filled and B = `Ready`. Worker prompts are exactly the instruction, a blank line, and the input. There is no system message or added section heading; the format column controls validation only. Model input includes only the current row's instruction and data; it never includes chat history or other jobs. Keep batches small. A conservative UTF-8 byte check protects context headroom; non-English data may require smaller chunks. Split a too-large job across rows.
 
@@ -48,7 +49,7 @@ A completed model response is `Done` only if nonempty and normally terminated; J
 
 ## Recovery
 
-Claims expire after 24 hours without a heartbeat. Heartbeats renew the lease for another 24 hours. After updating `google/Code.gs`, publish a new version of the existing Apps Script web app deployment for this duration to take effect. Another worker can then reclaim the job. The old claim cannot overwrite the new one. Completed answers are saved to browser storage before upload, and retried before claiming another job. Upload acknowledgement is idempotent, including when Google's first response was lost.
+Claims expire after 24 hours without a heartbeat by default. Optional column S, headed `Lease hours`, overrides this per job (for example `0.25`, `1`, or `6`). Each heartbeat renews the lease using that row’s current setting. Invalid values are flagged for review. After updating `google/Code.gs`, publish a new version of the existing Apps Script web app deployment for this duration to take effect. Another worker can then reclaim the job. The old claim cannot overwrite the new one. Completed answers are saved to browser storage before upload, and retried before claiming another job. Upload acknowledgement is idempotent, including when Google's first response was lost.
 
 If a tab closes during generation, incomplete output is not checkpointed: the expired job restarts. If it closes after the answer was saved, reconnect to the same endpoint/worker ID and start to retry submission. A stale saved answer is retained for downloading and supervisor review. Use **Download pending result**, then **Remove pending result** to clear it when appropriate. Storage-full errors pause the worker; the visible output can be copied. Clearing browser data removes saved results and cached models.
 
