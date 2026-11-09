@@ -221,7 +221,7 @@ installLaborer({
     try {
       const finishReason = await inference.generate([{ role: 'user', content: input }], onText,
         usage => { element('speed').textContent = `${usage.extra.decode_tokens_per_s.toFixed(2)} tokens/s · ${usage.completion_tokens} tokens`; },
-        { system: null, maxTokens: tokens, temperature: job.id.startsWith('neurobook-') ? 0.9 : comicJob ? (boosted ? 1.6 : 0.8) : 0.1 });
+        { system: null, maxTokens: tokens, temperature: job.id.startsWith('neurobook-') ? 0.9 : comicJob ? (boosted ? 1.6 : 1.1) : 0.1 });
       return { finishReason, model: selected };
     } finally { clearInterval(timer); ui.elapsed((performance.now() - start) / 1000); }
   },
