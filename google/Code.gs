@@ -1,6 +1,12 @@
 const HEADERS = ['Job ID', 'Status', 'Instructions', 'Input', 'Output format', 'Max output tokens', 'Result', 'Worker', 'Lease until', 'Lease token', 'Attempts', 'Model', 'Finish reason', 'Updated', 'Error', 'Review'];
 const LEASE_MS = 24 * 60 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
+function leaseMs_(value) {
+  if (value == null || String(value).trim() === '') return LEASE_MS;
+  const ms = Number(value) * 60 * 60 * 1000;
+  if (typeof value === 'boolean' || !Number.isFinite(ms) || ms < 1 || !Number.isFinite(new Date(Date.now() + ms).getTime())) return 0;
+  return ms;
+}
 
 function doGet(e) {
   const origin = PropertiesService.getScriptProperties().getProperty('ALLOWED_ORIGIN');
@@ -31,7 +37,8 @@ function queueRequest(request) {
     const ss = SpreadsheetApp.openById(props.getProperty('SPREADSHEET_ID'));
     const sheet = ss.getSheetByName('Jobs');
     validateHeaders_(sheet);
-    const rows = sheet.getLastRow() < 2 ? [] : sheet.getRange(2, 1, sheet.getLastRow() - 1, HEADERS.length).getValues();
+    const leaseIndex = sheet.getRange(1, 19).getValues()[0][0] === 'Lease hours' ? 18 : -1;
+    const rows = sheet.getLastRow() < 2 ? [] : sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.max(HEADERS.length, leaseIndex + 1)).getValues();
     const ids = rows.filter(r => r[0]).map(r => String(r[0]));
     if (new Set(ids).size !== ids.length) throw new Error('Duplicate Job IDs. Give every row a unique ID.');
     const now = Date.now();
@@ -48,8 +55,14 @@ function queueRequest(request) {
           sheet.getRange(i + 2, 15).setValue(attempts >= MAX_ATTEMPTS ? 'Attempt limit reached.' : 'Instructions missing.');
           continue;
         }
+        const duration = leaseMs_(row[leaseIndex]);
+        if (!duration) {
+          sheet.getRange(i + 2, 2).setValue('Needs review');
+          sheet.getRange(i + 2, 15).setValue('Invalid Lease hours: enter a positive number or leave blank for 24 hours.');
+          continue;
+        }
         const lease = Utilities.getUuid();
-        const until = new Date(now + LEASE_MS).toISOString();
+        const until = new Date(now + duration).toISOString();
         sheet.getRange(i + 2, 2).setValue('Working');
         sheet.getRange(i + 2, 8, 1, 4).setValues([[request.worker, until, lease, attempts + 1]]);
         sheet.getRange(i + 2, 14).setValue(new Date(now).toISOString());
@@ -66,7 +79,9 @@ function queueRequest(request) {
     if (request.action === 'complete' && ['Done', 'Needs review', 'Error'].indexOf(row[1]) >= 0) return { ok: true };
     if (row[1] !== 'Working') return { stale: true };
     if (request.action === 'heartbeat') {
-      sheet.getRange(n, 9).setValue(new Date(now + LEASE_MS).toISOString());
+      const duration = leaseMs_(row[leaseIndex]);
+      if (!duration) throw new Error('Invalid Lease hours: enter a positive number or leave blank.');
+      sheet.getRange(n, 9).setValue(new Date(now + duration).toISOString());
     } else if (request.action === 'complete') {
       const status = ['Done', 'Needs review', 'Error'].indexOf(request.status) >= 0 ? request.status : 'Needs review';
       sheet.getRange(n, 7).setValue(safeText_(request.result));
