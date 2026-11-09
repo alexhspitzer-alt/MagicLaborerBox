@@ -1,6 +1,7 @@
 import { QueueClient, type Job } from './queue-client';
 import { element } from './ui';
 const SETTINGS = 'magic-laborer.settings.v1', OUTBOX = 'magic-laborer.outbox.v1';
+const KEY_COOKIE = 'magic-laborer.worker-key.v1';
 type Result = { jobId: string; lease: string; status: string; result: string; model: string; finishReason: string; error: string; endpoint: string; worker: string };
 type Host = { available: () => boolean; generate: (job: Job, onText: (text: string) => void) => Promise<{ finishReason: string | null; model: string }>; lock: (locked: boolean) => void };
 export function installLaborer(host: Host) {
@@ -20,6 +21,10 @@ export function installLaborer(host: Host) {
     element<HTMLInputElement>('queue-worker').value = saved.worker || `box_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`;
     if (localStorage.getItem(OUTBOX)) status('A saved result is waiting. Connect to its queue, then start to retry the upload.');
   } catch { status('Saved queue settings could not be read.'); }
+  try {
+    const savedKey = document.cookie.split(';').map(part => part.trim()).find(part => part.startsWith(`${KEY_COOKIE}=`));
+    if (savedKey) element<HTMLInputElement>('queue-key').value = decodeURIComponent(savedKey.slice(KEY_COOKIE.length + 1));
+  } catch { /* A blocked or malformed cookie must not prevent connecting. */ }
   controls();
   element('queue-connect').addEventListener('click', async () => {
     if (active) return;
@@ -32,6 +37,10 @@ export function installLaborer(host: Host) {
       client = new QueueClient(endpoint, token, worker); status('Connecting to Google…');
       const info = await client.request('ping');
       localStorage.setItem(SETTINGS, JSON.stringify({ endpoint, worker }));
+      try {
+        const path = new URL('.', document.baseURI).pathname;
+        document.cookie = `${KEY_COOKIE}=${encodeURIComponent(token)}; Path=${path}; Max-Age=31536000; SameSite=Strict${location.protocol === 'https:' ? '; Secure' : ''}`;
+      } catch { /* Connecting still works when cookie storage is unavailable. */ }
       if (info.spreadsheetUrl && /^https:\/\/docs\.google\.com\/spreadsheets\/d\//.test(info.spreadsheetUrl)) {
         const link = element<HTMLAnchorElement>('queue-sheet'); link.href = info.spreadsheetUrl; link.hidden = false;
       }
