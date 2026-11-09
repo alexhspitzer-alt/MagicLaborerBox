@@ -12,7 +12,7 @@ See [PLAN.md](PLAN.md). Cloud supervision happens through Google Sheets tools in
 2. Paste `google/Code.gs` into `Code.gs`. Add an HTML file named `Bridge` with `google/Bridge.html`. Enable the manifest file in Project Settings and use `google/appsscript.json` to limit requested access to Google Sheets.
 3. In **Project Settings → Script Properties**, set `SPREADSHEET_ID` to your private queue ID, `ALLOWED_ORIGIN` to `https://alexhspitzer-alt.github.io`, and `WORKER_TOKEN` to a long random private key. Keep the `Jobs` headers unchanged. Do not publish these private settings.
 4. Deploy as a **Web app**, execute as **Me**, access **Anyone**. The bridge page is reachable anonymously, but every queue operation requires the private worker key. The Sheet itself stays private.
-5. Enter the deployed web app URL and worker key in the app. Use a unique worker ID on each device. The app remembers its endpoint and ID, but keeps the key only in memory.
+5. Enter the deployed web app URL and worker key in the app. Use a unique worker ID on each device. The app remembers its endpoint and ID. After a successful connection, it saves the worker key in an app-scoped cookie for one year and prefills it on future visits.
 6. Connect, select and load a text model, then **Start worker**. **Pause after job** finishes the current generation and uploads its answer before pausing.
 
 If hosted somewhere other than `https://alexhspitzer-alt.github.io`, change `ALLOWED_ORIGIN` in Script Properties. Update the web app deployment after script code changes. Local development requires explicitly changing the allowed origin to the development server's origin.
