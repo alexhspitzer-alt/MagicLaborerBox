@@ -63,3 +63,22 @@ test('claims and heartbeats grant a full 24-hour lease', () => {
   q.data[1][8] = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   assert.equal(q.request('claim', { worker: 'box_2' }).job, null);
 });
+
+test('per-job lease overrides apply to claims and heartbeats', () => {
+  const q = queue(); q.data[0][18] = 'Lease hours'; q.data[1][18] = 0.25;
+  const start = Date.now(), job = q.request('claim').job;
+  assert.ok(Math.abs(Date.parse(job.leaseUntil) - start - 15 * 60 * 1000) < 1000);
+  q.data[1][18] = 2;
+  q.request('heartbeat', { jobId: job.id, lease: job.lease });
+  assert.ok(Math.abs(Date.parse(q.data[1][8]) - Date.now() - 2 * 60 * 60 * 1000) < 1000);
+});
+test('blank leases default; invalid overrides are flagged; legacy extras ignored', () => {
+  for (const bad of [0, -1, 'no', Infinity, true]) {
+    const q = queue(); q.data[0][18] = 'Lease hours'; q.data[1][18] = bad;
+    assert.equal(q.request('claim').job, null); assert.equal(q.data[1][1], 'Needs review');
+  }
+  const blank = queue(); blank.data[0][18] = 'Lease hours'; blank.data[1][18] = ' ';
+  assert.ok(Date.parse(blank.request('claim').job.leaseUntil) > Date.now() + 23 * 60 * 60 * 1000);
+  const legacy = queue(); legacy.data[0][18] = 'Unrelated'; legacy.data[1][18] = 'unrelated';
+  assert.ok(legacy.request('claim').job);
+});
