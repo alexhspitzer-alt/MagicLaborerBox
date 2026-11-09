@@ -1,5 +1,5 @@
 const HEADERS = ['Job ID', 'Status', 'Instructions', 'Input', 'Output format', 'Max output tokens', 'Result', 'Worker', 'Lease until', 'Lease token', 'Attempts', 'Model', 'Finish reason', 'Updated', 'Error', 'Review'];
-const LEASE_MS = 15 * 60 * 1000;
+const LEASE_MS = 24 * 60 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 
 function doGet(e) {
