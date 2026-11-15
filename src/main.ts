@@ -210,8 +210,9 @@ installLaborer({
     if (!Number.isFinite(tokens) || tokens < 1 || tokens > 2048) throw new Error('Max output tokens must be between 1 and 2048.');
     const limit = getModel(selected).contextTokens ?? CONTEXT_SIZE;
     const comicJob = job.id.startsWith('comic-');
-    const boosted = comicJob && job.instructions.startsWith('[temperature=1.6]');
-    const instructions = boosted ? job.instructions.slice('[temperature=1.6]'.length).trim() : job.instructions.trim();
+    const temperatureTag = job.instructions.match(/^\[temperature=(0(?:\.\d+)?|1(?:\.\d+)?|2(?:\.0+)?)\]\s*/);
+    const temperature = temperatureTag ? Number(temperatureTag[1]) : job.id.startsWith('neurobook-') ? 0.9 : comicJob ? 1.1 : 0.1;
+    const instructions = temperatureTag ? job.instructions.slice(temperatureTag[0].length).trim() : job.instructions.trim();
     const jobInput = comicJob ? job.input.trim().slice(0, 140) : job.input.trim();
     const input = [instructions, jobInput].filter(Boolean).join('\n\n');
     // Conservative byte bound; the runtime tokenizer remains authoritative.
@@ -221,7 +222,7 @@ installLaborer({
     try {
       const finishReason = await inference.generate([{ role: 'user', content: input }], onText,
         usage => { element('speed').textContent = `${usage.extra.decode_tokens_per_s.toFixed(2)} tokens/s · ${usage.completion_tokens} tokens`; },
-        { system: null, maxTokens: tokens, temperature: job.id.startsWith('neurobook-') ? 0.9 : comicJob ? (boosted ? 1.6 : 1.1) : 0.1 });
+        { system: null, maxTokens: tokens, temperature });
       return { finishReason, model: selected };
     } finally { clearInterval(timer); ui.elapsed((performance.now() - start) / 1000); }
   },
