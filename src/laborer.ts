@@ -1,6 +1,8 @@
 import { QueueClient, type Job } from './queue-client';
 import { element } from './ui';
 const SETTINGS = 'magic-laborer.settings.v1', OUTBOX = 'magic-laborer.outbox.v1';
+const RETAINED = 'magic-laborer.retained-result.v1';
+const CLAIM = 'magic-laborer.claim.v1';
 const KEY_COOKIE = 'magic-laborer.worker-key.v1';
 type Result = { jobId: string; lease: string; status: string; result: string; model: string; finishReason: string; error: string; endpoint: string; worker: string };
 type Host = { available: () => boolean; generate: (job: Job, onText: (text: string) => void) => Promise<{ finishReason: string | null; model: string }>; lock: (locked: boolean) => void };
@@ -36,6 +38,7 @@ export function installLaborer(host: Host) {
       if (!token || !/^[a-zA-Z0-9_-]{1,100}$/.test(worker)) throw new Error('Enter a worker key and an ID using letters, numbers, underscores or hyphens.');
       client = new QueueClient(endpoint, token, worker); status('Connecting to Google…');
       const info = await client.request('ping');
+      if (info.recoveryVersion !== 1) throw new Error('Update the Google queue bridge deployment before using this worker: claim recovery is not installed.');
       localStorage.setItem(SETTINGS, JSON.stringify({ endpoint, worker }));
       try {
         const path = new URL('.', document.baseURI).pathname;
@@ -48,6 +51,18 @@ export function installLaborer(host: Host) {
     } catch (error) { client?.close(); client = undefined; status(String(error)); }
     controls();
   });
+  const releaseClaim = async (claimId: string) => {
+    for (let attempt = 0; ; attempt++) {
+      try { return await client!.request('releaseClaim', { claimId }); }
+      catch (error) {
+        if (!isTransient(error) || attempt === 2) throw error;
+        status('Google has not acknowledged release yet. Retrying release…');
+        await delay(10000);
+        client?.close();
+        client = new QueueClient(endpoint, element<HTMLInputElement>('queue-key').value.trim(), worker);
+      }
+    }
+  };
   const upload = async () => {
     const saved = localStorage.getItem(OUTBOX); if (!saved) return;
     const result: Result = JSON.parse(saved);
@@ -58,20 +73,30 @@ export function installLaborer(host: Host) {
         response = await client!.request('complete', result);
         break;
       } catch (error) {
-        if (!/timed out|lock timeout|holding the lock|did not connect|disconnected|network|failed to fetch/i.test(String(error)) || attempt === 7) throw error;
+        if (!isTransient(error)) throw error;
+        if (attempt === 7) break;
         status('Google is busy or disconnected. Saved result retained; retrying upload…');
         await delay(Math.min(30000, 2000 * 2 ** attempt));
         client?.close();
         client = new QueueClient(endpoint, element<HTMLInputElement>('queue-key').value.trim(), worker);
       }
     }
-    if (!response) throw new Error('Upload retry failed.');
-    if (response.stale) throw new Error('This result’s lease was reassigned. Download the saved result for review; it will not overwrite another worker.');
+    if (!response || response.stale) {
+      // Save a separate copy before releasing; late results may not overwrite a new owner.
+      localStorage.setItem(`magic-laborer.retained.${result.lease}`, saved);
+      localStorage.setItem(RETAINED, saved);
+      status('Repeated upload errors. Result backed up; releasing the job for another attempt…');
+      const released = await releaseClaim(result.lease);
+      if (!released.ok) throw new Error('Release not acknowledged. Saved result and claim retained for retry.');
+      localStorage.removeItem(OUTBOX);
+      localStorage.removeItem(CLAIM);
+      return;
+    }
     if (!response.ok) throw new Error('Google did not acknowledge the result.');
     localStorage.removeItem(OUTBOX);
   };
   element('queue-download').addEventListener('click', () => {
-    const result = localStorage.getItem(OUTBOX);
+    const result = localStorage.getItem(OUTBOX) || localStorage.getItem(RETAINED);
     if (!result) { status('No pending result to download.'); return; }
     const url = URL.createObjectURL(new Blob([result], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = 'laborer-pending-result.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -101,21 +126,39 @@ export function installLaborer(host: Host) {
       while (!pauseRequested) {
         if (!navigator.onLine) { status('Offline. Waiting to reach Google…'); await delay(5000); continue; }
         status('Checking for a job…');
-        let reply: Awaited<ReturnType<QueueClient['request']>>;
-        try {
-          reply = await client.request('claim');
-        } catch (error) {
-          // A reported lock failure means the claim did not obtain the lock. A generic
-          // request timeout is ambiguous and must not be retried as a fresh claim.
-          if (/lock timeout|holding the lock/i.test(String(error))) {
-            status('Google queue is busy. Retrying in 10 seconds…');
+        const previousClaim = localStorage.getItem(CLAIM);
+        let claimId = crypto.randomUUID();
+        let releasing = false;
+        if (previousClaim) {
+          const saved = JSON.parse(previousClaim);
+          if (saved.endpoint !== endpoint || saved.worker !== worker) throw new Error('Unresolved claim belongs to another queue or worker.');
+          claimId = saved.claimId;
+          releasing = saved.releasing === true;
+        }
+        localStorage.setItem(CLAIM, JSON.stringify({ endpoint, worker, claimId, releasing }));
+        let reply: Awaited<ReturnType<QueueClient['request']>> | undefined;
+        for (let attempt = 0; !releasing && attempt < 3; attempt++) {
+          try { reply = await client.request('claim', { claimId }); break; }
+          catch (error) {
+            if (!isTransient(error)) throw error;
+            status('Queue request interrupted. Retrying the same claim…');
             await delay(10000);
-            continue;
+            client.close();
+            client = new QueueClient(endpoint, element<HTMLInputElement>('queue-key').value.trim(), worker);
           }
-          throw error;
+        }
+        if (!reply) {
+          status('Repeated queue errors. Releasing this claim before retrying…');
+          // Keep release intent across reloads and lost acknowledgements.
+          localStorage.setItem(CLAIM, JSON.stringify({ endpoint, worker, claimId, releasing: true }));
+          const released = await releaseClaim(claimId);
+          if (!released.ok) throw new Error('Claim release was not acknowledged.');
+          localStorage.removeItem(CLAIM);
+          await delay(10000);
+          continue;
         }
         const job = reply.job;
-        if (!job) { status('Queue empty. Checking again in 15 seconds.'); await delay(15000); continue; }
+        if (!job) { localStorage.removeItem(CLAIM); status('Queue empty. Checking again in 15 seconds.'); await delay(15000); continue; }
         element('queue-job').textContent = `${job.id}: ${job.instructions}`;
         element('queue-output').textContent = '';
         status(`Working on ${job.id} locally…`);
@@ -139,6 +182,7 @@ export function installLaborer(host: Host) {
         // Refuse to claim another job unless durable saving and upload both succeed.
         localStorage.setItem(OUTBOX, JSON.stringify(result));
         status(`Uploading ${job.id}…`); await upload();
+        localStorage.removeItem(CLAIM);
         status(`${job.id}: ${resultStatus}. ${error}`);
         if (resultStatus === 'Error') break;
       }
@@ -147,3 +191,5 @@ export function installLaborer(host: Host) {
   });
 }
 const delay = (ms: number) => new Promise<void>(resolve => window.setTimeout(resolve, ms));
+
+const isTransient = (error: unknown) => /timed out|lock timeout|holding the lock|did not connect|disconnected|network|failed to fetch/i.test(String(error));

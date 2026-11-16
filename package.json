@@ -7,7 +7,7 @@
     "build": "tsc --noEmit && node scripts/build.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "test": "playwright test",
-    "test:queue": "node --test tests/queue.test.mjs"
+    "test:queue": "node --test tests/queue.test.mjs tests/recovery.test.mjs"
   },
   "repository": {
     "type": "git",

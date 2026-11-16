@@ -42,8 +42,27 @@ function queueRequest(request) {
     const ids = rows.filter(r => r[0]).map(r => String(r[0]));
     if (new Set(ids).size !== ids.length) throw new Error('Duplicate Job IDs. Give every row a unique ID.');
     const now = Date.now();
-    if (request.action === 'ping') return { ok: true, spreadsheetUrl: ss.getUrl(), ready: rows.filter(r => r[1] === 'Ready').length };
+    if (request.action === 'ping') return { ok: true, recoveryVersion: 1, spreadsheetUrl: ss.getUrl(), ready: rows.filter(r => r[1] === 'Ready').length };
+    // Persist cancellation before releasing: a delayed claim must never resurrect it.
+    const claimKey = request.claimId ? 'claim-cancelled:' + request.worker + ':' + request.claimId : '';
+    if (request.claimId && !/^[a-f0-9-]{36}$/.test(request.claimId)) throw new Error('Invalid claim ID.');
+    if (request.action === 'releaseClaim') {
+      if (!claimKey) throw new Error('Claim ID required.');
+      props.setProperty(claimKey, String(now));
+      const i = rows.findIndex(r => r[7] === request.worker && r[9] === request.claimId && r[1] === 'Working');
+      if (i >= 0) {
+        sheet.getRange(i + 2, 2).setValue('Ready');
+        sheet.getRange(i + 2, 8, 1, 4).setValues([['', '', '', Math.max(0, (Number(rows[i][10]) || 1) - 1)]]);
+        SpreadsheetApp.flush();
+      }
+      return { ok: true, completed: rows.some(r => r[7] === request.worker && r[9] === request.claimId && ['Done', 'Needs review', 'Error'].indexOf(r[1]) >= 0) };
+    }
     if (request.action === 'claim') {
+      if (claimKey && props.getProperty(claimKey)) return { job: null };
+      // A retry of the same request returns its original claim, not another job.
+      const existing = request.claimId && rows.find(r => r[7] === request.worker && r[9] === request.claimId);
+      if (existing) return { job: existing[1] === 'Working' ? { id: String(existing[0]), instructions: String(existing[2]), input: String(existing[3]), format: String(existing[4] || 'text'), maxTokens: Number(existing[5]) || 512, lease: existing[9], leaseUntil: existing[8] } : null };
+
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         if (!row[0]) continue;
@@ -61,7 +80,7 @@ function queueRequest(request) {
           sheet.getRange(i + 2, 15).setValue('Invalid Lease hours: enter a positive number or leave blank for 24 hours.');
           continue;
         }
-        const lease = Utilities.getUuid();
+        const lease = request.claimId || Utilities.getUuid();
         const until = new Date(now + duration).toISOString();
         sheet.getRange(i + 2, 2).setValue('Working');
         sheet.getRange(i + 2, 8, 1, 4).setValues([[request.worker, until, lease, attempts + 1]]);

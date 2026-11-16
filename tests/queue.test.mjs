@@ -10,7 +10,8 @@ function queue() {
       setValue(value) { data[row - 1][col - 1] = value; },
       setValues(values) { values.forEach((r, y) => r.forEach((v, x) => { data[row - 1 + y][col - 1 + x] = v; })); } };
   } };
-  const context = vm.createContext({ Date, Set, PropertiesService: { getScriptProperties: () => ({ getProperty: key => ({ WORKER_TOKEN: 'secret', SPREADSHEET_ID: 'queue' })[key] }) },
+  const properties = { WORKER_TOKEN: 'secret', SPREADSHEET_ID: 'queue' };
+  const context = vm.createContext({ Date, Set, PropertiesService: { getScriptProperties: () => ({ getProperty: key => properties[key], setProperty: (key, value) => { properties[key] = value; } }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) }, Utilities: { getUuid: () => crypto.randomUUID() },
     SpreadsheetApp: { openById: () => ({ getSheetByName: () => sheet, getUrl: () => 'https://docs.google.com/spreadsheets/d/queue/edit' }), flush() {} } });
   vm.runInContext(readFileSync(new URL('../google/Code.gs', import.meta.url), 'utf8'), context);
@@ -81,4 +82,42 @@ test('blank leases default; invalid overrides are flagged; legacy extras ignored
   assert.ok(Date.parse(blank.request('claim').job.leaseUntil) > Date.now() + 23 * 60 * 60 * 1000);
   const legacy = queue(); legacy.data[0][18] = 'Unrelated'; legacy.data[1][18] = 'unrelated';
   assert.ok(legacy.request('claim').job);
+});
+
+const claimId = 'a1234567-1234-1234-1234-123456789012';
+test('lost claim response retries return the same job and count once', () => {
+  const q = queue(); q.data.push(['job-2', 'Ready', 'Next job']);
+  const a = q.request('claim', { claimId }).job;
+  const b = q.request('claim', { claimId }).job;
+  assert.equal(a.lease, claimId); assert.equal(b.id, a.id);
+  assert.equal(q.data[1][10], 1); assert.equal(q.data[2][1], 'Ready');
+  assert.equal(q.request('ping').recoveryVersion, 1);
+});
+test('release restores readiness without shortening leases, and is idempotent', () => {
+  const q = queue(), job = q.request('claim', { claimId }).job;
+  assert.ok(Date.parse(job.leaseUntil) > Date.now() + 23 * 3600000);
+  q.request('releaseClaim', { claimId }); q.request('releaseClaim', { claimId });
+  assert.equal(q.data[1][1], 'Ready'); assert.equal(q.data[1][10], 0);
+  assert.deepEqual(q.data[1].slice(7, 10), ['', '', '']);
+  assert.equal(q.request('claim', { claimId }).job, null);
+  assert.equal(q.request('complete', { jobId: job.id, lease: job.lease, result: 'late', status: 'Done' }).stale, true);
+});
+test('release arriving before delayed claim prevents resurrection', () => {
+  const q = queue(); q.request('releaseClaim', { claimId });
+  assert.equal(q.request('claim', { claimId }).job, null);
+  assert.equal(q.data[1][1], 'Ready');
+  assert.ok(q.request('claim', { claimId: crypto.randomUUID() }).job);
+});
+test('release cannot disturb completed work or another owner', () => {
+  const q = queue(), job = q.request('claim', { claimId }).job;
+  q.request('releaseClaim', { claimId, worker: 'other' });
+  assert.equal(q.data[1][1], 'Working');
+  q.request('complete', { jobId: job.id, lease: job.lease, status: 'Done', result: 'saved' });
+  assert.equal(q.request('releaseClaim', { claimId }).completed, true);
+  assert.equal(q.data[1][1], 'Done'); assert.equal(q.data[1][6], 'saved');
+  const q2 = queue(), old = q2.request('claim', { claimId }).job;
+  q2.data[1][8] = new Date(0).toISOString();
+  const next = q2.request('claim', { worker: 'other' }).job;
+  q2.request('releaseClaim', { claimId });
+  assert.equal(q2.data[1][9], next.lease); assert.equal(q2.data[1][1], 'Working');
 });

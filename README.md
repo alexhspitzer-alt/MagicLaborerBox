@@ -74,3 +74,24 @@ Essential checks cover authentication, exclusive claims, lease recovery, stale-w
 Connect your private queue through the app’s worker panel. No private spreadsheet IDs or worker keys are published in this repository.
 
 Version 0.2 simplifies worker prompts and checks for app updates while preserving offline fallback and existing model caches.
+
+### Recovering interrupted Google requests
+
+Leases still default to 24 hours and honor each row's **Lease hours** override.
+The worker persists a unique claim ID before contacting Google. Three failed claim
+requests trigger an explicit release; retrying the same claim cannot take another job.
+Release is acknowledged and retried, and pending release intent survives reloads.
+The bridge records cancellation so a delayed request cannot reclaim a released job.
+Only the matching worker and lease can be released; completed or reassigned jobs stay intact.
+Network recovery refunds the claim attempt rather than consuming the inference retry limit.
+
+After eight failed result uploads, the worker saves a separate local backup and
+releases the job for regeneration. Download pending result retrieves the pending
+result or latest recovery backup. All recovery copies remain in local storage under
+`magic-laborer.retained.<lease>`. If Google cannot acknowledge release, the worker
+pauses with its pending state retained; Start retries it when Google is reachable.
+A complete Google outage still requires connectivity before any server claim can be released.
+
+Deploy the updated `google/Code.gs` to the existing Apps Script deployment **before**
+refreshing the worker. The new worker checks recovery protocol version 1 during
+connection and refuses an older bridge rather than silently leaving claims stranded.
