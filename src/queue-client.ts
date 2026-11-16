@@ -36,7 +36,7 @@ export class QueueClient {
     await this.ready;
     return new Promise((resolve, reject) => {
       const id = crypto.randomUUID();
-      const timer = window.setTimeout(() => { this.pending.delete(id); reject(new Error('Google request timed out. Results stay saved for retry.')); }, 30000);
+      const timer = window.setTimeout(() => { this.pending.delete(id); reject(new Error('Google request timed out. Results stay saved for retry.')); }, 90000);
       this.pending.set(id, { resolve, reject, timer });
       this.peer!.postMessage({ type: 'queue-request', channel: this.channel, id, request: { ...fields, action, token: this.token, worker: this.worker } }, this.origin);
     });
