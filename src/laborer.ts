@@ -58,8 +58,8 @@ export function installLaborer(host: Host) {
         response = await client!.request('complete', result);
         break;
       } catch (error) {
-        if (!/timed out|did not connect|disconnected|network|failed to fetch/i.test(String(error)) || attempt === 7) throw error;
-        status('Google connection interrupted. Saved result retained; reconnecting to retry upload…');
+        if (!/timed out|lock timeout|holding the lock|did not connect|disconnected|network|failed to fetch/i.test(String(error)) || attempt === 7) throw error;
+        status('Google is busy or disconnected. Saved result retained; retrying upload…');
         await delay(Math.min(30000, 2000 * 2 ** attempt));
         client?.close();
         client = new QueueClient(endpoint, element<HTMLInputElement>('queue-key').value.trim(), worker);
@@ -101,7 +101,19 @@ export function installLaborer(host: Host) {
       while (!pauseRequested) {
         if (!navigator.onLine) { status('Offline. Waiting to reach Google…'); await delay(5000); continue; }
         status('Checking for a job…');
-        const reply = await client.request('claim');
+        let reply: Awaited<ReturnType<QueueClient['request']>>;
+        try {
+          reply = await client.request('claim');
+        } catch (error) {
+          // A reported lock failure means the claim did not obtain the lock. A generic
+          // request timeout is ambiguous and must not be retried as a fresh claim.
+          if (/lock timeout|holding the lock/i.test(String(error))) {
+            status('Google queue is busy. Retrying in 10 seconds…');
+            await delay(10000);
+            continue;
+          }
+          throw error;
+        }
         const job = reply.job;
         if (!job) { status('Queue empty. Checking again in 15 seconds.'); await delay(15000); continue; }
         element('queue-job').textContent = `${job.id}: ${job.instructions}`;
