@@ -43,7 +43,7 @@ function parseVerdict(answer: string): 'YES' | 'NO' | undefined {
   if (verdict === 'YES' || verdict === 'NO') return verdict;
 }
 
-export async function findRecipe(query: string, classify: (ingredients: string, attempt: number) => Promise<string>, report: Report): Promise<(Hit & { ingredients: string }) | null> {
+export async function findRecipe(query: string, classify: (ingredient: string, attempt: number) => Promise<string>, report: Report): Promise<(Hit & { ingredients: string }) | null> {
   const seen = new Set<number>();
   let cursor: SearchResult['continue'];
   for (let attempt = 1; attempt <= MAX_SEARCHES; attempt++) {
@@ -62,16 +62,25 @@ export async function findRecipe(query: string, classify: (ingredients: string, 
       const article = await request<ParsedPage>({ action: 'parse', pageid: String(hit.pageid), prop: 'text' });
       const ingredients = readIngredients(article.parse?.text ?? '');
       if (ingredients) {
-        for (let attempt = 1; attempt <= MAX_VERDICT_ATTEMPTS; attempt++) {
-          const answer = await classify(ingredients, attempt);
-          const verdict = parseVerdict(answer);
-          if (verdict) {
-            report(verdict, page);
-            if (verdict === 'NO') return { ...hit, ingredients };
-            break;
+        const lines = ingredients.split('\n').map(line => line.trim()).filter(Boolean);
+        let allNo = true;
+        for (const ingredient of lines) {
+          let verdict: ReturnType<typeof parseVerdict>;
+          for (let attempt = 1; attempt <= MAX_VERDICT_ATTEMPTS; attempt++) {
+            const answer = await classify(ingredient, attempt);
+            verdict = parseVerdict(answer);
+            if (verdict) break;
+            const next = attempt < MAX_VERDICT_ATTEMPTS ? 'Retrying ingredient' : 'Skipping recipe after three attempts';
+            report(`${next} · ${ingredient} · unexpected reply ${JSON.stringify(answer.trim())}`, page);
           }
-          const next = attempt < MAX_VERDICT_ATTEMPTS ? 'Retrying the same recipe' : 'Skipping after three attempts';
-          report(`${next} · unexpected reply ${JSON.stringify(answer.trim())}`, page);
+          if (verdict === 'NO') continue;
+          if (verdict === 'YES') report(`YES · ${ingredient}`, page);
+          allNo = false;
+          break;
+        }
+        if (allNo) {
+          report(`NO · all ${lines.length} ingredients checked`, page);
+          return { ...hit, ingredients };
         }
       } else {
         report('Skipped page without an ingredient list', page);

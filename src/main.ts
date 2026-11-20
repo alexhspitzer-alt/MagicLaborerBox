@@ -251,13 +251,13 @@ element('recipe-start').addEventListener('click', async () => {
   input.disabled = true;
   controls();
   try {
-    const recipe = await findRecipe(query, async (ingredients, attempt) => {
-      status.textContent = 'Checking the ingredient list with the local model…';
+    const recipe = await findRecipe(query, async (ingredient, attempt) => {
+      status.textContent = `Checking ingredient · ${ingredient}`;
       let answer = '';
       const { finishReason } = await generateJob({
         id: 'recipe-test',
-        instructions: `[temperature=${attempt === 1 ? 0 : 0.2}] Does this ingredient list include any peanuts or tree nuts? Count optional nuts too. Answer with exactly one word: YES or NO.`,
-        input: ingredients,
+        instructions: `[temperature=${attempt === 1 ? 0 : 0.2}] Is this ingredient a peanut or tree nut, or does it explicitly name one? Count optional nuts too. Answer YES or NO.`,
+        input: ingredient,
         maxTokens: 12,
       }, text => { answer += text; });
       return finishReason === 'stop' ? answer : `[Incomplete reply] ${answer}`;
