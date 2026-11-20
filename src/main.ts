@@ -275,7 +275,20 @@ element('recipe-start').addEventListener('click', async () => {
         input: saved.explanation,
         maxTokens: 24,
       }, text => { reply += text; });
-      const verdict = analysis.finishReason === 'stop' && saved.explanation.trim() && interpretation.finishReason === 'stop' ? parseVerdict(reply) : 'UNCERTAIN';
+      const analysisComplete = analysis.finishReason === 'stop' && Boolean(saved.explanation.trim());
+      let verdict = analysisComplete && interpretation.finishReason === 'stop' ? parseVerdict(reply) : 'UNCERTAIN';
+      if (verdict === 'UNCERTAIN') {
+        status.textContent = 'Retrying the verdict at temperature 0.5…';
+        let retryReply = '';
+        const retry = await generateJob({
+          id: 'recipe-verdict-retry',
+          instructions: '[temperature=0.5] Does this explanation say the recipe contains peanuts or tree nuts, including optional ingredients? Reply with exactly one word: YES or NO.',
+          input: saved.explanation,
+          maxTokens: 24,
+        }, text => { retryReply += text; });
+        verdict = analysisComplete && retry.finishReason === 'stop' ? parseVerdict(retryReply) : 'UNCERTAIN';
+        reply = `First reply: ${reply}\n\nRetry at temperature 0.5: ${retryReply}`;
+      }
       const result = await laborer.recipeLog('recipeFinish', { id, verdict, reply });
       if (!result.ok) throw new Error('Sheets did not acknowledge the saved verdict.');
       return verdict;
