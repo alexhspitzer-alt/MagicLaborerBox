@@ -1,4 +1,6 @@
 import { installLaborer } from './laborer';
+import { findRecipe } from './recipe-search';
+import type { Job } from './queue-client';
 import './style.css';
 import { detectDevice } from './device';
 import { Inference } from './inference';
@@ -28,7 +30,14 @@ try {
 } catch (error) { ui.error(error); }
 const inference = new Inference(error => { loaded = false; ui.error(error); controls(); });
 const imageInference = new ImageInference();
-function controls(generating = false) { ui.controls(loaded, busy || laborerLocked, supported, generating); }
+function controls(generating = false) {
+  ui.controls(loaded, busy || laborerLocked, supported, generating);
+  const recipeStart = element<HTMLButtonElement>('recipe-start');
+  recipeStart.disabled = !loaded || mode !== 'text' || busy || laborerLocked;
+  if (!busy && !element('recipe-trace').hasChildNodes()) {
+    element('recipe-status').textContent = recipeStart.disabled ? 'Load a text model to start.' : '';
+  }
+}
 function offlineReadiness() {
   element('offline-status').textContent = appCached && modelCached
     ? 'Offline ready. You can disconnect, generate, and reload this page with the selected model from this browser.'
@@ -201,29 +210,78 @@ element('clear').addEventListener('click', async () => {
   finally { busy = false; controls(); }
 });
 
+async function generateJob(job: Pick<Job, 'id' | 'instructions' | 'input' | 'maxTokens'>, onText: (text: string) => void) {
+  if (!loaded || mode !== 'text') throw new Error('Load a text model to process jobs.');
+  const tokens = Math.floor(job.maxTokens);
+  if (!Number.isFinite(tokens) || tokens < 1 || tokens > 2048) throw new Error('Max output tokens must be between 1 and 2048.');
+  const limit = getModel(selected).contextTokens ?? CONTEXT_SIZE;
+  const comicJob = job.id.startsWith('comic-');
+  const temperatureTag = job.instructions.match(/^\[temperature=(0(?:\.\d+)?|1(?:\.\d+)?|2(?:\.0+)?)\]\s*/);
+  const temperature = temperatureTag ? Number(temperatureTag[1]) : job.id.startsWith('neurobook-') ? 0.9 : comicJob ? 1.1 : 0.1;
+  const instructions = temperatureTag ? job.instructions.slice(temperatureTag[0].length).trim() : job.instructions.trim();
+  const jobInput = comicJob ? job.input.trim().slice(0, 140) : job.input.trim();
+  const input = [instructions, jobInput].filter(Boolean).join('\n\n');
+  // Conservative byte bound; the runtime tokenizer remains authoritative.
+  if (new TextEncoder().encode(input).length + tokens + 128 > limit) throw new Error('Job is too large for this model. Split the input into smaller rows.');
+  const start = performance.now();
+  const timer = window.setInterval(() => ui.elapsed((performance.now() - start) / 1000), 250);
+  try {
+    const finishReason = await inference.generate([{ role: 'user', content: input }], onText,
+      usage => { element('speed').textContent = `${usage.extra.decode_tokens_per_s.toFixed(2)} tokens/s · ${usage.completion_tokens} tokens`; },
+      { system: null, maxTokens: tokens, temperature });
+    return { finishReason, model: selected };
+  } finally { clearInterval(timer); ui.elapsed((performance.now() - start) / 1000); }
+}
+
 installLaborer({
   available: () => supported && loaded && mode === 'text' && !busy,
   lock: value => { laborerLocked = value; controls(); },
-  generate: async (job, onText) => {
-    if (!loaded || mode !== 'text') throw new Error('Load a text model to process jobs.');
-    const tokens = Math.floor(job.maxTokens);
-    if (!Number.isFinite(tokens) || tokens < 1 || tokens > 2048) throw new Error('Max output tokens must be between 1 and 2048.');
-    const limit = getModel(selected).contextTokens ?? CONTEXT_SIZE;
-    const comicJob = job.id.startsWith('comic-');
-    const temperatureTag = job.instructions.match(/^\[temperature=(0(?:\.\d+)?|1(?:\.\d+)?|2(?:\.0+)?)\]\s*/);
-    const temperature = temperatureTag ? Number(temperatureTag[1]) : job.id.startsWith('neurobook-') ? 0.9 : comicJob ? 1.1 : 0.1;
-    const instructions = temperatureTag ? job.instructions.slice(temperatureTag[0].length).trim() : job.instructions.trim();
-    const jobInput = comicJob ? job.input.trim().slice(0, 140) : job.input.trim();
-    const input = [instructions, jobInput].filter(Boolean).join('\n\n');
-    // Conservative byte bound; the runtime tokenizer remains authoritative.
-    if (new TextEncoder().encode(input).length + tokens + 128 > limit) throw new Error('Job is too large for this model. Split the input into smaller rows.');
-    const start = performance.now();
-    const timer = window.setInterval(() => ui.elapsed((performance.now() - start) / 1000), 250);
-    try {
-      const finishReason = await inference.generate([{ role: 'user', content: input }], onText,
-        usage => { element('speed').textContent = `${usage.extra.decode_tokens_per_s.toFixed(2)} tokens/s · ${usage.completion_tokens} tokens`; },
-        { system: null, maxTokens: tokens, temperature });
-      return { finishReason, model: selected };
-    } finally { clearInterval(timer); ui.elapsed((performance.now() - start) / 1000); }
-  },
+  generate: generateJob,
+});
+
+element('recipe-start').addEventListener('click', async () => {
+  if (!loaded || mode !== 'text' || busy || laborerLocked) return;
+  const input = element<HTMLInputElement>('recipe-query');
+  const query = input.value.trim();
+  const status = element('recipe-status');
+  if (!query) { status.textContent = 'Enter a search query.'; return; }
+  const trace = element('recipe-trace');
+  trace.replaceChildren();
+  busy = true;
+  input.disabled = true;
+  controls();
+  try {
+    const recipe = await findRecipe(query, async ingredients => {
+      status.textContent = 'Checking the ingredient list with the local model…';
+      let answer = '';
+      const { finishReason } = await generateJob({
+        id: 'recipe-test',
+        instructions: '[temperature=0] Does this ingredient list include any peanuts or tree nuts? Count optional nuts too. Answer with exactly one word: YES or NO.',
+        input: ingredients,
+        maxTokens: 12,
+      }, text => { answer += text; });
+      if (finishReason !== 'stop') throw new Error('The model did not finish its answer.');
+      return answer;
+    }, (message, page) => {
+      const row = document.createElement('li');
+      row.textContent = message;
+      if (page) {
+        const link = document.createElement('a');
+        link.textContent = page.title;
+        link.href = page.url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        row.append(' · ', link);
+      }
+      trace.append(row);
+      status.textContent = message;
+    });
+    status.textContent = recipe ? 'Stopped at the first NO. The recipe is linked below.' : 'Search ended without a NO.';
+  } catch (error) {
+    status.textContent = error instanceof Error ? error.message : String(error);
+  } finally {
+    busy = false;
+    input.disabled = false;
+    controls();
+  }
 });

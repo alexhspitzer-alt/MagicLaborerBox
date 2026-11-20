@@ -118,6 +118,7 @@ export function installLaborer(host: Host) {
       });
     });
     if (!await lockReady) { status('Another laborer tab is already running on this device.'); return; }
+    if (!host.available()) { acquire?.(); status('Wait for the current operation to finish.'); return; }
     singleTabLock = acquire;
     active = true; pauseRequested = false; host.lock(true); controls();
     try {

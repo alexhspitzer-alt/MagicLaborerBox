@@ -40,6 +40,13 @@
       <p id="queue-job"></p><pre id="queue-output" aria-label="Current job output"></pre>
       <div class="queue-actions"><button id="queue-download" class="secondary">Download pending result</button><button id="queue-discard" class="secondary">Remove pending result</button></div>
     </section>
+    <section class="panel queue" aria-label="Live recipe test">
+      <h2>Live recipe test</h2>
+      <label for="recipe-query">Search Wikibooks Cookbook<input id="recipe-query" value="chocolate chip cookies" maxlength="100"></label>
+      <button id="recipe-start" type="button" disabled>Find a cookie recipe</button>
+      <p id="recipe-status" role="status">Load a text model to start.</p>
+      <ol id="recipe-trace"></ol>
+    </section>
     <section class="panel terminal" aria-label="Local chat">
       <div class="terminal-head"><span id="terminal-title">CONVERSATION / LOCAL</span><button id="clear" class="secondary">New chat</button></div>
       <div id="messages" aria-label="Conversation" aria-busy="false"><p class="empty">The box is quiet.<br><span>Load the model, then give it something to think about.</span></p></div>
