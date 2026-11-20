@@ -1,5 +1,6 @@
 const API = 'https://en.wikibooks.org/w/api.php';
 const MAX_SEARCHES = 12;
+const MAX_VERDICT_ATTEMPTS = 3;
 
 type Hit = { pageid: number; title: string };
 type SearchResult = { query?: { search: Hit[] }; continue?: { sroffset: number; continue: string } };
@@ -35,7 +36,14 @@ function readIngredients(html: string): string {
   return lines.join('\n');
 }
 
-export async function findRecipe(query: string, classify: (ingredients: string) => Promise<string>, report: Report): Promise<Hit | null> {
+function parseVerdict(answer: string): 'YES' | 'NO' | undefined {
+  const cleaned = answer.replace(/[`*_~"'“”‘’]/g, '').trim()
+    .replace(/^\s*(?:[-•>]+\s+)?(?:(?:answer|verdict|result)\s*[:=-]\s*)?\(?\s*/i, '');
+  const verdict = /^(yes|no)(?=\s*(?:[.!,:;)\n–—-]|$))/i.exec(cleaned)?.[1].toUpperCase();
+  if (verdict === 'YES' || verdict === 'NO') return verdict;
+}
+
+export async function findRecipe(query: string, classify: (ingredients: string, attempt: number) => Promise<string>, report: Report): Promise<(Hit & { ingredients: string }) | null> {
   const seen = new Set<number>();
   let cursor: SearchResult['continue'];
   for (let attempt = 1; attempt <= MAX_SEARCHES; attempt++) {
@@ -54,10 +62,17 @@ export async function findRecipe(query: string, classify: (ingredients: string) 
       const article = await request<ParsedPage>({ action: 'parse', pageid: String(hit.pageid), prop: 'text' });
       const ingredients = readIngredients(article.parse?.text ?? '');
       if (ingredients) {
-        const verdict = (await classify(ingredients)).trim();
-        if (verdict !== 'YES' && verdict !== 'NO') throw new Error(`Expected YES or NO. The model returned ${JSON.stringify(verdict)}.`);
-        report(verdict, page);
-        if (verdict === 'NO') return hit;
+        for (let attempt = 1; attempt <= MAX_VERDICT_ATTEMPTS; attempt++) {
+          const answer = await classify(ingredients, attempt);
+          const verdict = parseVerdict(answer);
+          if (verdict) {
+            report(verdict, page);
+            if (verdict === 'NO') return { ...hit, ingredients };
+            break;
+          }
+          const next = attempt < MAX_VERDICT_ATTEMPTS ? 'Retrying the same recipe' : 'Skipping after three attempts';
+          report(`${next} · unexpected reply ${JSON.stringify(answer.trim())}`, page);
+        }
       } else {
         report('Skipped page without an ingredient list', page);
       }

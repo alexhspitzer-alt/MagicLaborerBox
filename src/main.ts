@@ -251,17 +251,16 @@ element('recipe-start').addEventListener('click', async () => {
   input.disabled = true;
   controls();
   try {
-    const recipe = await findRecipe(query, async ingredients => {
+    const recipe = await findRecipe(query, async (ingredients, attempt) => {
       status.textContent = 'Checking the ingredient list with the local model…';
       let answer = '';
       const { finishReason } = await generateJob({
         id: 'recipe-test',
-        instructions: '[temperature=0] Does this ingredient list include any peanuts or tree nuts? Count optional nuts too. Answer with exactly one word: YES or NO.',
+        instructions: `[temperature=${attempt === 1 ? 0 : 0.2}] Does this ingredient list include any peanuts or tree nuts? Count optional nuts too. Answer with exactly one word: YES or NO.`,
         input: ingredients,
         maxTokens: 12,
       }, text => { answer += text; });
-      if (finishReason !== 'stop') throw new Error('The model did not finish its answer.');
-      return answer;
+      return finishReason === 'stop' ? answer : `[Incomplete reply] ${answer}`;
     }, (message, page) => {
       const row = document.createElement('li');
       row.textContent = message;
@@ -276,7 +275,20 @@ element('recipe-start').addEventListener('click', async () => {
       trace.append(row);
       status.textContent = message;
     });
-    status.textContent = recipe ? 'Stopped at the first NO. The recipe is linked below.' : 'Search ended without a NO.';
+    status.textContent = recipe ? 'Stopped at the first NO. Ingredients are shown below.' : 'Search ended without a NO.';
+    if (recipe) {
+      const result = document.createElement('li');
+      const label = document.createElement('strong');
+      label.textContent = 'Ingredients';
+      const list = document.createElement('ul');
+      for (const ingredient of recipe.ingredients.split('\n')) {
+        const line = document.createElement('li');
+        line.textContent = ingredient;
+        list.append(line);
+      }
+      result.append(label, list);
+      trace.append(result);
+    }
   } catch (error) {
     status.textContent = error instanceof Error ? error.message : String(error);
   } finally {
