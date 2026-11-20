@@ -190,6 +190,17 @@ export function installLaborer(host: Host) {
     } catch (error) { status(`Worker paused: ${String(error)} Pending results are retained on this device.`); }
     finally { active = false; await wake?.release().catch(() => {}); wake = undefined; host.lock(false); singleTabLock?.(); singleTabLock = undefined; controls(); }
   });
+  return {
+    async recipeLog(action: 'recipeSave' | 'recipeFinish', fields: Record<string, unknown>) {
+      if (!connected || !client) throw new Error('Connect the Google queue before running the recipe test.');
+      return client.request(action, fields);
+    },
+    async checkRecipeLog() {
+      if (!connected || !client) throw new Error('Connect the Google queue before running the recipe test.');
+      const result = await client.request('recipeCheck');
+      if (!result.ok) throw new Error('The Google queue bridge needs the recipe logging update.');
+    },
+  };
 }
 const delay = (ms: number) => new Promise<void>(resolve => window.setTimeout(resolve, ms));
 

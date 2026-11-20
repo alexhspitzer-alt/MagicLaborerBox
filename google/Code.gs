@@ -35,6 +35,8 @@ function queueRequest(request) {
   lock.waitLock(10000);
   try {
     const ss = SpreadsheetApp.openById(props.getProperty('SPREADSHEET_ID'));
+    if (request.action === 'recipeCheck') return { ok: true };
+    if (request.action === 'recipeSave' || request.action === 'recipeFinish') return recipeLog_(ss, request);
     const sheet = ss.getSheetByName('Jobs');
     validateHeaders_(sheet);
     const leaseIndex = sheet.getRange(1, 19).getValues()[0][0] === 'Lease hours' ? 18 : -1;
@@ -110,4 +112,34 @@ function queueRequest(request) {
     SpreadsheetApp.flush();
     return { ok: true };
   } finally { lock.releaseLock(); }
+}
+
+function recipeLog_(ss, request) {
+  const headers = ['ID', 'Time', 'Search', 'Recipe', 'URL', 'Ingredients', 'Model', 'Explanation', 'Verdict', 'Raw verdict'];
+  if (!/^[0-9a-f-]{36}$/i.test(request.id || '')) throw new Error('Invalid recipe log ID.');
+  let sheet = ss.getSheetByName('Recipe Test');
+  if (!sheet && request.action === 'recipeSave') {
+    sheet = ss.insertSheet('Recipe Test');
+    sheet.appendRow(headers);
+    sheet.setFrozenRows(1);
+  }
+  if (!sheet || sheet.getRange(1, 1, 1, headers.length).getValues()[0].join('|') !== headers.join('|')) {
+    throw new Error('Recipe Test log is missing or its headers have changed.');
+  }
+  const last = sheet.getLastRow();
+  const existing = last > 1 && sheet.getRange(2, 1, last - 1, 1).createTextFinder(request.id).matchEntireCell(true).findNext();
+  if (request.action === 'recipeSave') {
+    const row = existing ? existing.getRow() : last + 1;
+    if (!existing) {
+      sheet.appendRow([request.id, new Date().toISOString(), ...[
+        request.query, request.title, request.url, request.ingredients, request.model, request.explanation,
+      ].map(safeText_)]);
+      SpreadsheetApp.flush();
+    }
+    return { explanation: String(sheet.getRange(row, 8).getValue()) };
+  }
+  if (!existing || !['YES', 'NO', 'UNCERTAIN'].includes(request.verdict)) throw new Error('Invalid recipe verdict or missing log row.');
+  sheet.getRange(existing.getRow(), 9, 1, 2).setValues([[request.verdict, safeText_(request.reply)]]);
+  SpreadsheetApp.flush();
+  return { ok: true };
 }

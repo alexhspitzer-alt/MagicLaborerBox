@@ -1,5 +1,5 @@
 export type Job = { id: string; instructions: string; input: string; format: string; maxTokens: number; lease: string; leaseUntil: string };
-export type Reply = { ok?: boolean; completed?: boolean; recoveryVersion?: number; stale?: boolean; job?: Job | null; ready?: number; spreadsheetUrl?: string };
+export type Reply = { ok?: boolean; completed?: boolean; recoveryVersion?: number; explanation?: string; stale?: boolean; job?: Job | null; ready?: number; spreadsheetUrl?: string };
 export class QueueClient {
   private frame = document.createElement('iframe');
   private channel = crypto.randomUUID();

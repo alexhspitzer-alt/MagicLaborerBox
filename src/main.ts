@@ -1,5 +1,5 @@
 import { installLaborer } from './laborer';
-import { findRecipe } from './recipe-search';
+import { findRecipe, parseVerdict } from './recipe-search';
 import type { Job } from './queue-client';
 import './style.css';
 import { detectDevice } from './device';
@@ -233,7 +233,7 @@ async function generateJob(job: Pick<Job, 'id' | 'instructions' | 'input' | 'max
   } finally { clearInterval(timer); ui.elapsed((performance.now() - start) / 1000); }
 }
 
-installLaborer({
+const laborer = installLaborer({
   available: () => supported && loaded && mode === 'text' && !busy,
   lock: value => { laborerLocked = value; controls(); },
   generate: generateJob,
@@ -251,16 +251,34 @@ element('recipe-start').addEventListener('click', async () => {
   input.disabled = true;
   controls();
   try {
-    const recipe = await findRecipe(query, async (ingredient, attempt) => {
-      status.textContent = `Checking ingredient · ${ingredient}`;
-      let answer = '';
-      const { finishReason } = await generateJob({
-        id: 'recipe-test',
-        instructions: `[temperature=${attempt === 1 ? 0 : 0.2}] Is this ingredient a peanut or tree nut, or does it explicitly name one? Count optional nuts too. Answer YES or NO.`,
-        input: ingredient,
-        maxTokens: 12,
-      }, text => { answer += text; });
-      return finishReason === 'stop' ? answer : `[Incomplete reply] ${answer}`;
+    await laborer.checkRecipeLog();
+    const recipe = await findRecipe(query, async (ingredients, page) => {
+      const id = crypto.randomUUID();
+      status.textContent = 'Analyzing the full ingredient list…';
+      let explanation = '';
+      const analysis = await generateJob({
+        id: 'recipe-analysis',
+        instructions: 'Read the entire ingredient list. Identify any peanuts, tree nuts, or ingredients that explicitly contain either, including optional ingredients. Explain what you found in your own words.',
+        input: ingredients,
+        maxTokens: 256,
+      }, text => { explanation += text; });
+      const saved = await laborer.recipeLog('recipeSave', {
+        id, ...page, query, ingredients, explanation, model: analysis.model,
+      });
+      if (typeof saved.explanation !== 'string') throw new Error('Sheets did not return the saved explanation.');
+
+      status.textContent = 'Interpreting the explanation read back from Sheets…';
+      let reply = '';
+      const interpretation = await generateJob({
+        id: 'recipe-verdict',
+        instructions: 'Does this explanation say the recipe contains peanuts or tree nuts? Reply YES if it says they are present, NO if it says neither is present, or UNCERTAIN if it is ambiguous.',
+        input: saved.explanation,
+        maxTokens: 24,
+      }, text => { reply += text; });
+      const verdict = analysis.finishReason === 'stop' && saved.explanation.trim() && interpretation.finishReason === 'stop' ? parseVerdict(reply) : 'UNCERTAIN';
+      const result = await laborer.recipeLog('recipeFinish', { id, verdict, reply });
+      if (!result.ok) throw new Error('Sheets did not acknowledge the saved verdict.');
+      return verdict;
     }, (message, page) => {
       const row = document.createElement('li');
       row.textContent = message;

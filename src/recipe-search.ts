@@ -1,6 +1,5 @@
 const API = 'https://en.wikibooks.org/w/api.php';
 const MAX_SEARCHES = 12;
-const MAX_VERDICT_ATTEMPTS = 3;
 
 type Hit = { pageid: number; title: string };
 type SearchResult = { query?: { search: Hit[] }; continue?: { sroffset: number; continue: string } };
@@ -36,14 +35,14 @@ function readIngredients(html: string): string {
   return lines.join('\n');
 }
 
-function parseVerdict(answer: string): 'YES' | 'NO' | undefined {
+export function parseVerdict(answer: string): 'YES' | 'NO' | 'UNCERTAIN' {
   const cleaned = answer.replace(/[`*_~"'“”‘’]/g, '').trim()
     .replace(/^\s*(?:[-•>]+\s+)?(?:(?:answer|verdict|result)\s*[:=-]\s*)?\(?\s*/i, '');
-  const verdict = /^(yes|no)(?=\s*(?:[.!,:;)\n–—-]|$))/i.exec(cleaned)?.[1].toUpperCase();
-  if (verdict === 'YES' || verdict === 'NO') return verdict;
+  const verdict = /^(yes|no|uncertain)(?=\s*(?:[.!,:;)\n–—-]|$))/i.exec(cleaned)?.[1].toUpperCase();
+  return verdict === 'YES' || verdict === 'NO' ? verdict : 'UNCERTAIN';
 }
 
-export async function findRecipe(query: string, classify: (ingredient: string, attempt: number) => Promise<string>, report: Report): Promise<(Hit & { ingredients: string }) | null> {
+export async function findRecipe(query: string, classify: (ingredients: string, page: { title: string; url: string }) => Promise<string>, report: Report): Promise<(Hit & { ingredients: string }) | null> {
   const seen = new Set<number>();
   let cursor: SearchResult['continue'];
   for (let attempt = 1; attempt <= MAX_SEARCHES; attempt++) {
@@ -62,26 +61,9 @@ export async function findRecipe(query: string, classify: (ingredient: string, a
       const article = await request<ParsedPage>({ action: 'parse', pageid: String(hit.pageid), prop: 'text' });
       const ingredients = readIngredients(article.parse?.text ?? '');
       if (ingredients) {
-        const lines = ingredients.split('\n').map(line => line.trim()).filter(Boolean);
-        let allNo = true;
-        for (const ingredient of lines) {
-          let verdict: ReturnType<typeof parseVerdict>;
-          for (let attempt = 1; attempt <= MAX_VERDICT_ATTEMPTS; attempt++) {
-            const answer = await classify(ingredient, attempt);
-            verdict = parseVerdict(answer);
-            if (verdict) break;
-            const next = attempt < MAX_VERDICT_ATTEMPTS ? 'Retrying ingredient' : 'Skipping recipe after three attempts';
-            report(`${next} · ${ingredient} · unexpected reply ${JSON.stringify(answer.trim())}`, page);
-          }
-          if (verdict === 'NO') continue;
-          if (verdict === 'YES') report(`YES · ${ingredient}`, page);
-          allNo = false;
-          break;
-        }
-        if (allNo) {
-          report(`NO · all ${lines.length} ingredients checked`, page);
-          return { ...hit, ingredients };
-        }
+        const verdict = await classify(ingredients, page);
+        report(verdict, page);
+        if (verdict === 'NO') return { ...hit, ingredients };
       } else {
         report('Skipped page without an ingredient list', page);
       }
