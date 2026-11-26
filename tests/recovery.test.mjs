@@ -5,10 +5,15 @@ import { stripTypeScriptTypes } from 'node:module';
 import vm from 'node:vm';
 const CLAIM = 'magic-laborer.claim.v1', OUTBOX = 'magic-laborer.outbox.v1';
 const endpoint = 'https://script.google.com/macros/s/test/exec', worker = 'box_test';
-async function workerHarness(handle, initial = {}) {
+async function workerHarness(handle, initial = {}, generate = async () => { throw Error('unexpected generation'); }) {
   const storage = new Map(Object.entries(initial)), elements = new Map(), calls = [];
   const element = id => {
-    if (!elements.has(id)) elements.set(id, { value: '', textContent: '', addEventListener(event, fn) { this[event] = fn; } });
+    if (!elements.has(id)) elements.set(id, {
+      value: '', textContent: '',
+      get valueAsNumber() { return Number(this.value); },
+      reportValidity() { return this.value === '' || (this.valueAsNumber >= 0 && this.valueAsNumber <= 2); },
+      addEventListener(event, fn) { this[event] = fn; },
+    });
     return elements.get(id);
   };
   const context = vm.createContext({ console, crypto, URL, location: { protocol: 'https:' },
@@ -25,7 +30,7 @@ async function workerHarness(handle, initial = {}) {
   });
   let source = readFileSync(new URL('../src/laborer.ts', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '').replace('export function', 'function');
   vm.runInContext(stripTypeScriptTypes(source), context);
-  context.installLaborer({ available: () => true, lock() {}, generate: async () => { throw Error('unexpected generation'); } });
+  context.installLaborer({ available: () => true, lock() {}, generate });
   element('queue-url').value = endpoint; element('queue-worker').value = worker; element('queue-key').value = 'key';
   await element('queue-connect').click();
   await element('queue-start').click();
@@ -63,4 +68,22 @@ test('exhausted result uploads retain a backup and release before further work',
   assert.equal(h.calls.filter(c => c.action === 'complete').length, 8);
   assert.equal(h.storage.has(OUTBOX), false);
   assert.equal(h.calls.filter(c => c.action === 'claim').length, 0);
+});
+
+test('the queue worker passes zero as an override and leaves blank temperatures to the job', async () => {
+  for (const [saved, expected] of [['0', 0], ['', undefined]]) {
+    let observed;
+    const h = await workerHarness((action, fields, { elements }) => {
+      if (action === 'claim') return { job: { id: 'job-1', instructions: '[temperature=1.6] Answer once.', input: '', format: 'text', maxTokens: 32, lease: fields.claimId } };
+      assert.equal(action, 'complete');
+      elements.get('queue-pause').click();
+      return { ok: true };
+    }, { 'magic-laborer.temperature.v1': saved }, async (job, write, override) => {
+      observed = override;
+      write('Answer');
+      return { model: 'test', finishReason: 'stop' };
+    });
+    assert.equal(h.calls.at(-1).status, 'Done');
+    assert.equal(observed, expected);
+  }
 });

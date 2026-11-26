@@ -4,18 +4,25 @@ const SETTINGS = 'magic-laborer.settings.v1', OUTBOX = 'magic-laborer.outbox.v1'
 const RETAINED = 'magic-laborer.retained-result.v1';
 const CLAIM = 'magic-laborer.claim.v1';
 const KEY_COOKIE = 'magic-laborer.worker-key.v1';
+const TEMPERATURE = 'magic-laborer.temperature.v1';
 type Result = { jobId: string; lease: string; status: string; result: string; model: string; finishReason: string; error: string; endpoint: string; worker: string };
-type Host = { available: () => boolean; generate: (job: Job, onText: (text: string) => void) => Promise<{ finishReason: string | null; model: string }>; lock: (locked: boolean) => void };
+type Host = {
+  available: () => boolean;
+  generate: (job: Job, onText: (text: string) => void, temperatureOverride?: number) => Promise<{ finishReason: string | null; model: string }>;
+  lock: (locked: boolean) => void;
+};
 export function installLaborer(host: Host) {
   let client: QueueClient | undefined, active = false, pauseRequested = false, wake: WakeLockSentinel | undefined;
   let endpoint = '', worker = '', connected = false;
   let singleTabLock: (() => void) | undefined;
   const status = (text: string) => { element('queue-status').textContent = text; };
+  const temperature = element<HTMLInputElement>('queue-temperature');
   const controls = () => {
     element<HTMLButtonElement>('queue-connect').disabled = active;
     element<HTMLButtonElement>('queue-start').disabled = active || !connected;
     element<HTMLButtonElement>('queue-pause').disabled = !active;
     for (const id of ['queue-url', 'queue-key', 'queue-worker']) element<HTMLInputElement>(id).disabled = active;
+    temperature.disabled = active;
   };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS) || '{}');
@@ -27,6 +34,13 @@ export function installLaborer(host: Host) {
     const savedKey = document.cookie.split(';').map(part => part.trim()).find(part => part.startsWith(`${KEY_COOKIE}=`));
     if (savedKey) element<HTMLInputElement>('queue-key').value = decodeURIComponent(savedKey.slice(KEY_COOKIE.length + 1));
   } catch { /* A blocked or malformed cookie must not prevent connecting. */ }
+  try { temperature.value = localStorage.getItem(TEMPERATURE) ?? ''; }
+  catch { /* The override also works without local storage. */ }
+  temperature.addEventListener('input', () => {
+    if (!temperature.validity.valid) return;
+    try { localStorage.setItem(TEMPERATURE, temperature.value); }
+    catch { /* Keep the override for this page if saving fails. */ }
+  });
   controls();
   element('queue-connect').addEventListener('click', async () => {
     if (active) return;
@@ -108,6 +122,8 @@ export function installLaborer(host: Host) {
   element('queue-pause').addEventListener('click', () => { pauseRequested = true; status('Pausing after the current job and upload…'); controls(); });
   element('queue-start').addEventListener('click', async () => {
     if (active || !client || !connected) return;
+    if (!temperature.reportValidity()) { status('Enter a job temperature from 0 to 2 or leave it blank.'); return; }
+    const temperatureOverride = temperature.value === '' ? undefined : temperature.valueAsNumber;
     if (!host.available()) { status('Load a text model before starting the worker.'); return; }
     let acquire: (() => void) | undefined;
     if (!navigator.locks) { status('This browser needs Web Locks to prevent duplicate workers. Use a current browser.'); return; }
@@ -170,7 +186,7 @@ export function installLaborer(host: Host) {
         }, 60000);
         let output = '', error = '', finishReason = '', model = '', resultStatus = 'Done';
         try {
-          const result = await host.generate(job, text => { output += text; element('queue-output').textContent = output; });
+          const result = await host.generate(job, text => { output += text; element('queue-output').textContent = output; }, temperatureOverride);
           finishReason = result.finishReason || ''; model = result.model;
           if (!output.trim() || finishReason !== 'stop') { resultStatus = 'Needs review'; error = 'Empty, interrupted or truncated output.'; }
           if (job.format.toLowerCase() === 'json') {

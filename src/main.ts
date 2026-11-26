@@ -72,10 +72,14 @@ function updateSelection() {
   selectionVersion++;
   const model = getModel(selected);
   element<HTMLSelectElement>('mode-select').value = mode;
-  element<HTMLSelectElement>('model-select').replaceChildren(...MODELS.filter(option => option.mode === mode).map(option => {
-    const item = document.createElement('option'); item.value = option.id; item.textContent = option.name; return item;
-  }));
-  element<HTMLSelectElement>('model-select').value = selected;
+  const picker = element<HTMLSelectElement>('model-select');
+  const options = MODELS.filter(option => option.mode === mode);
+  const standard = options.filter(option => !option.lowMemory).map(option => new Option(option.name, option.id));
+  const lowMemory = document.createElement('optgroup');
+  lowMemory.label = 'Low memory';
+  lowMemory.append(...options.filter(option => option.lowMemory).map(option => new Option(option.name, option.id)));
+  picker.replaceChildren(...standard, lowMemory);
+  picker.value = selected;
   element('model').textContent = model.name;
   element('size').textContent = model.size;
   element('context').textContent = model.context;
@@ -210,14 +214,17 @@ element('clear').addEventListener('click', async () => {
   finally { busy = false; controls(); }
 });
 
-async function generateJob(job: Pick<Job, 'id' | 'instructions' | 'input' | 'maxTokens'>, onText: (text: string) => void) {
+async function generateJob(job: Pick<Job, 'id' | 'instructions' | 'input' | 'maxTokens'>, onText: (text: string) => void, temperatureOverride?: number) {
   if (!loaded || mode !== 'text') throw new Error('Load a text model to process jobs.');
-  const tokens = Math.floor(job.maxTokens);
-  if (!Number.isFinite(tokens) || tokens < 1 || tokens > 2048) throw new Error('Max output tokens must be between 1 and 2048.');
-  const limit = getModel(selected).contextTokens ?? CONTEXT_SIZE;
+  const requestedTokens = Math.floor(job.maxTokens);
+  if (!Number.isFinite(requestedTokens) || requestedTokens < 1 || requestedTokens > 2048) throw new Error('Max output tokens must be between 1 and 2048.');
+  const model = getModel(selected);
+  const tokens = Math.min(requestedTokens, model.maxOutputTokens ?? MAX_OUTPUT_TOKENS);
+  const limit = model.contextTokens ?? CONTEXT_SIZE;
   const comicJob = job.id.startsWith('comic-');
   const temperatureTag = job.instructions.match(/^\[temperature=(0(?:\.\d+)?|1(?:\.\d+)?|2(?:\.0+)?)\]\s*/);
-  const temperature = temperatureTag ? Number(temperatureTag[1]) : job.id.startsWith('neurobook-') ? 0.9 : comicJob ? 1.1 : 0.1;
+  const assignedTemperature = temperatureTag ? Number(temperatureTag[1]) : job.id.startsWith('neurobook-') ? 0.9 : comicJob ? 1.1 : 0.1;
+  const temperature = temperatureOverride ?? assignedTemperature;
   const instructions = temperatureTag ? job.instructions.slice(temperatureTag[0].length).trim() : job.instructions.trim();
   const jobInput = comicJob ? job.input.trim().slice(0, 140) : job.input.trim();
   const input = [instructions, jobInput].filter(Boolean).join('\n\n');

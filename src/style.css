@@ -16,5 +16,8 @@ select:focus-visible{outline:2px solid #dfb36e;outline-offset:3px}select:disable
 .queue input { width: 100%; min-width: 0; padding: .8rem; border: 1px solid #3c514b; border-radius: .4rem; background: #111716; color: #e6eee9; font: inherit; }
 .queue-actions { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
 .queue a { color: #b6dfca; }
+#queue-temperature { max-width: 15rem; }
+#queue-temperature:invalid { border-color: #bb805a; }
+#queue-temperature-hint { margin: 0 0 .75rem; }
 #queue-output { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 20rem; overflow-y: auto; font: inherit; }
 #queue-job { overflow-wrap: anywhere; }

@@ -29,20 +29,20 @@ test('unsupported devices get a clear error and cannot download a model', async 
 test('app and saved chat survive an offline reload on a repository subpath', async ({ page, context }) => {
   await page.goto('./');
   await expect(page.locator('#app-cache')).toHaveText('App cache: complete');
-  await page.evaluate(() => localStorage.setItem('magic-talking-box.chat.v1', JSON.stringify([{ role: 'user', content: '<b>local history</b>' }, { role: 'assistant', content: 'Saved reply' }])));
+  await page.evaluate(() => localStorage.setItem('magic-laborer-box.chat.v1', JSON.stringify([{ role: 'user', content: '<b>local history</b>' }, { role: 'assistant', content: 'Saved reply' }])));
   // Model the browser connection signal as well as blocking network traffic.
   // Some headless builds keep navigator.onLine=true under CDP emulation.
   await page.addInitScript(() => Object.defineProperty(navigator, 'onLine', { get: () => false }));
   await context.setOffline(true);
   await page.reload();
-  await expect(page.locator('h1')).toContainText('Magic Talking Box');
+  await expect(page.locator('h1')).toContainText('Magic Laborer Box');
   await expect(page.locator('#messages')).toContainText('<b>local history</b>');
   await expect(page.locator('#messages b')).toHaveCount(0);
   await expect(page.locator('#messages')).toContainText('Saved reply');
   await expect(page.locator('#network')).toContainText('Offline');
   // The inference worker itself must also be available without HTTP caching.
   expect(await page.evaluate(async () => {
-    const cache = await caches.open((await caches.keys()).find(key => key.startsWith('magic-box-app-'))!);
+    const cache = await caches.open((await caches.keys()).find(key => key.startsWith('magic-laborer-app-'))!);
     const worker = (await cache.keys()).find(key => /\/assets\/worker-.*\.js$/.test(key.url));
     return Boolean(worker && (await fetch(worker.url)).ok);
   })).toBe(true);
@@ -132,7 +132,10 @@ test('model menus switch modes without downloading weights', async ({ page }) =>
   const remote: string[] = [];
   page.on('request', request => { if (/huggingface|githubusercontent|jsdelivr/.test(request.url())) remote.push(request.url()); });
   await page.goto('./');
-  await expect(page.locator('#model-select option')).toHaveCount(8);
+  const lowMemory = page.locator('#model-select optgroup[label="Low memory"]');
+  await expect(lowMemory.locator('option')).toHaveCount(7);
+  await page.locator('#model-select').selectOption('TinyLlama-1.1B-Chat-v1.0-q4f32_1-MLC-1k');
+  await expect(page.locator('#context')).toContainText('1,024 tokens');
   await page.locator('#model-select').selectOption('Qwen2.5-1.5B-Instruct-q4f32_1-MLC');
   await page.locator('#model-select').selectOption('Llama-3.2-3B-Instruct-q4f16_1-MLC');
   await expect(page.locator('#context')).toContainText('2,048 tokens');
@@ -213,7 +216,7 @@ test('image UI saves PNGs, restores offline, and releases the worker on model sw
   await expect(page.locator('.image-result img')).toHaveCount(1);
   await expect(page.locator('.image-result')).toContainText('<b>a tiny drawing</b>');
   expect(await page.evaluate(async () => {
-    const name = (await caches.keys()).find(name => name.startsWith('magic-box-app-'))!;
+    const name = (await caches.keys()).find(name => name.startsWith('magic-laborer-app-'))!;
     const cache = await caches.open(name);
     const keys = await cache.keys();
     return ['ort-wasm-simd-threaded.jsep.mjs', 'ort-wasm-simd-threaded.jsep.wasm'].every(file => keys.some(key => key.url.endsWith('/ort/' + file)));
@@ -240,7 +243,7 @@ test('selected image cache needs every artifact and the real image worker starts
   await expect(page.locator('#offline-status')).toContainText('Offline ready');
   // A deliberately unknown model reports an error before downloads/GPU work.
   expect(await page.evaluate(async () => {
-    const cache = await caches.open((await caches.keys()).find(key => key.startsWith('magic-box-app-'))!);
+    const cache = await caches.open((await caches.keys()).find(key => key.startsWith('magic-laborer-app-'))!);
     const url = (await cache.keys()).find(key => /\/assets\/image-worker-.*\.js$/.test(key.url))!.url;
     return new Promise<string>((resolve, reject) => {
       const worker = new Worker(url, { type: 'module' });

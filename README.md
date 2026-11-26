@@ -45,6 +45,10 @@ Keep the `Jobs` tab and these headers in their exact order:
 
 To add work, append rows with A–F filled and B = `Ready`. Worker prompts are exactly the instruction, a blank line, and the input. There is no system message or added section heading; the format column controls validation only. Model input includes only the current row's instruction and data; it never includes chat history or other jobs. Keep batches small. A conservative UTF-8 byte check protects context headroom; non-English data may require smaller chunks. Split a too-large job across rows.
 
+Add a tag such as `[temperature=0.5]` at the start of the Instructions cell to set the job’s temperature. To override it, enter a value from 0 to 2 in **Job temperature override** before starting the worker. The browser remembers this field. Clear it to follow each job’s temperature. The setting applies to the Google queue only.
+
+The model picker groups shorter-context and reduced-memory options under **Low memory**. Start with SmolLM2 360M on a device with GPU float16, or try TinyLlama 1.1B on a device without it. The model details show context and output limits.
+
 A completed model response is `Done` only if nonempty and normally terminated; JSON jobs must also parse. This is a format check, not a correctness judgment. The cloud supervisor reviews outputs and may mark them `Accepted`, put notes in P, or set B back to `Ready` after revising instructions. Reset K deliberately if retrying past the three-attempt limit. Do not edit, sort, or reset active `Working` rows; pause workers first. Workers coordinate with each other using a script lock, but manual and connector edits do not use that lock.
 
 ## Recovery
